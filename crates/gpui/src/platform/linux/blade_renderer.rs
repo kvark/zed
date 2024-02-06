@@ -356,6 +356,8 @@ impl BladeRenderer {
     }
 
     pub fn draw(&mut self, scene: &Scene) {
+        // TODO: check if viewport size is different than what the gpu thinks it is?
+        self.resize(self.viewport_size);
         let frame = self.gpu.acquire_frame();
         self.command_encoder.start();
         self.command_encoder.init_texture(frame.texture());
