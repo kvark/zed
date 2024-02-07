@@ -188,7 +188,7 @@ impl LinuxWindowState {
 
         //Warning: it looks like this reported size is immediately invalidated
         // on some platforms, followed by a "ConfigureNotify" event.
-        let gpu_extent = query_render_extent(&xcb_connection, x_window);
+        let mut gpu_extent = query_render_extent(&xcb_connection, x_window);
 
         let raw = RawWindow {
             connection: as_raw_xcb_connection::AsRawXcbConnection::as_raw_xcb_connection(
@@ -198,6 +198,7 @@ impl LinuxWindowState {
             window_id: x_window.resource_id(),
             visual_id: screen.root_visual(),
         };
+
         let gpu = Arc::new(
             unsafe {
                 gpu::Context::init_windowed(
@@ -210,6 +211,12 @@ impl LinuxWindowState {
             }
             .unwrap(),
         );
+
+        let gpu_extent_after_init = query_render_extent(&xcb_connection, x_window);
+        if gpu_extent != gpu_extent_after_init {
+            log::warn!("Gpu extent changed after gpu::Context::init_windowed");
+            gpu_extent = gpu_extent_after_init
+        }
 
         Self {
             xcb_connection: Arc::clone(xcb_connection),
