@@ -399,7 +399,11 @@ impl PlatformWindow for LinuxWindow {
     fn invalidate(&self) {}
 
     fn draw(&self, scene: &crate::Scene) {
+        let extent = query_render_extent(&self.0.xcb_connection, self.0.x_window);
         let mut inner = self.0.inner.lock();
+        if inner.renderer.viewport_size() != extent {
+            inner.renderer.resize(extent);
+        }
         inner.renderer.draw(scene);
     }
 
