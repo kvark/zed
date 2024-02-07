@@ -352,7 +352,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn read_credentials(&self, url: &str) -> Task<Result<Option<(String, Vec<u8>)>>> {
-        unimplemented!()
+        self.background_executor().spawn(async move { Ok(None) })
     }
 
     fn delete_credentials(&self, url: &str) -> Task<Result<()>> {
