@@ -129,6 +129,7 @@ impl Platform for LinuxPlatform {
                                 if let Some(ref mut fun) = self.callbacks.lock().quit {
                                     fun();
                                 }
+                                self.quit();
                             }
                         }
                     }
