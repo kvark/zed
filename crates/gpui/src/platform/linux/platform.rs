@@ -218,9 +218,8 @@ impl Platform for LinuxPlatform {
                         let state = self.state.lock();
                         Arc::clone(&state.windows[&ev.event()])
                     };
+                    let modifiers = modifiers_from_state(ev.state());
                     if let Some(button) = button_of_key(ev.detail()) {
-                        let modifiers = modifiers_from_state(ev.state());
-
                         window.handle_event(PlatformInput::MouseDown(crate::MouseDownEvent {
                             button,
                             position: point(
@@ -230,46 +229,6 @@ impl Platform for LinuxPlatform {
                             modifiers,
                             click_count: 1,
                         }))
-                    }
-                }
-                xcb::Event::X(x::Event::ButtonRelease(ev)) => {
-                    let window = {
-                        let state = self.state.lock();
-                        Arc::clone(&state.windows[&ev.event()])
-                    };
-                    if let Some(button) = button_of_key(ev.detail()) {
-                        let modifiers = modifiers_from_state(ev.state());
-
-                        window.handle_event(PlatformInput::MouseUp(crate::MouseUpEvent {
-                            button,
-                            position: point(
-                                (ev.event_x() as f32).into(),
-                                (ev.event_y() as f32).into(),
-                            ),
-                            modifiers,
-                            click_count: 1,
-                        }))
-                    }
-                }
-                xcb::Event::X(x::Event::KeyPress(ev)) => {
-                    let window = {
-                        let state = self.state.lock();
-                        Arc::clone(&state.windows[&ev.event()])
-                    };
-                    println!("press: {:?}", ev);
-                    let key = xkb::Keycode::from(ev.detail());
-                    let key = xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key, 0, 0)[0])
-                        .to_lowercase();
-                    println!("press: {:?}", key);
-                    let modifiers = modifiers_from_state(ev.state());
-                    if key.starts_with("shift")
-                        || key.starts_with("control")
-                        || key.starts_with("super")
-                        || key.starts_with("alt")
-                    {
-                        window.handle_event(PlatformInput::ModifiersChanged(
-                            crate::ModifiersChangedEvent { modifiers },
-                        ))
                     } else if ev.detail() == 4 || ev.detail() == 5 {
                         let touch_phase = if scrolling {
                             crate::TouchPhase::Moved
@@ -283,47 +242,30 @@ impl Platform for LinuxPlatform {
                             ),
                             delta: crate::ScrollDelta::Lines(point(
                                 0.,
-                                if ev.detail() == 5 { 1. } else { -1.0 },
+                                if ev.detail() == 4 { 1. } else { -1.0 },
                             )),
                             modifiers,
                             touch_phase,
                         }));
                         scrolling = true;
-                    } else {
-                        let key = if key == "return" {
-                            "enter".to_string()
-                        } else {
-                            key
-                        };
-                        window.handle_event(PlatformInput::KeyDown(crate::KeyDownEvent {
-                            keystroke: crate::Keystroke {
-                                modifiers,
-                                key,
-                                ime_key: None,
-                            },
-                            is_held: false,
-                        }))
                     }
                 }
-                xcb::Event::X(x::Event::KeyRelease(ev)) => {
+                xcb::Event::X(x::Event::ButtonRelease(ev)) => {
                     let window = {
                         let state = self.state.lock();
                         Arc::clone(&state.windows[&ev.event()])
                     };
-                    println!("release {:?}", ev);
-                    let key = xkb::Keycode::from(ev.detail());
-                    let key = xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key, 0, 0)[0])
-                        .to_lowercase();
-                    println!("release {:?}", key);
                     let modifiers = modifiers_from_state(ev.state());
-                    if key.starts_with("shift")
-                        || key.starts_with("control")
-                        || key.starts_with("super")
-                        || key.starts_with("alt")
-                    {
-                        window.handle_event(PlatformInput::ModifiersChanged(
-                            crate::ModifiersChangedEvent { modifiers },
-                        ))
+                    if let Some(button) = button_of_key(ev.detail()) {
+                        window.handle_event(PlatformInput::MouseUp(crate::MouseUpEvent {
+                            button,
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            modifiers,
+                            click_count: 1,
+                        }))
                     } else if ev.detail() == 4 || ev.detail() == 5 {
                         window.handle_event(PlatformInput::ScrollWheel(crate::ScrollWheelEvent {
                             position: point(
@@ -332,12 +274,78 @@ impl Platform for LinuxPlatform {
                             ),
                             delta: crate::ScrollDelta::Lines(point(
                                 0.,
-                                if ev.detail() == 5 { 1. } else { -1.0 },
+                                if ev.detail() == 4 { 1. } else { -1.0 },
                             )),
                             modifiers,
                             touch_phase: crate::TouchPhase::Ended,
                         }));
                         scrolling = false;
+                    }
+                }
+                xcb::Event::X(x::Event::KeyPress(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let modifiers = modifiers_from_state(ev.state());
+                    let key_code = xkb::Keycode::from(ev.detail());
+                    let key =
+                        xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key_code, 0, 0)[0])
+                            .to_lowercase();
+                    let full_key = std::char::from_u32(xkb::keysym_to_utf32(
+                        self.keymap.key_get_syms_by_level(
+                            key_code,
+                            0,
+                            if modifiers.shift { 1 } else { 0 },
+                        )[0],
+                    ))
+                    .unwrap()
+                    .to_string();
+                    if key.starts_with("shift")
+                        || key.starts_with("control")
+                        || key.starts_with("super")
+                        || key.starts_with("alt")
+                    {
+                        window.handle_event(PlatformInput::ModifiersChanged(
+                            crate::ModifiersChangedEvent { modifiers },
+                        ))
+                    } else {
+                        let key = if key == "return" {
+                            "enter".to_string()
+                        } else {
+                            key
+                        };
+                        window.handle_key(
+                            crate::KeyDownEvent {
+                                keystroke: crate::Keystroke {
+                                    modifiers,
+                                    key,
+                                    ime_key: None,
+                                },
+                                is_held: false,
+                            },
+                            &full_key,
+                        )
+                    }
+                }
+                xcb::Event::X(x::Event::KeyRelease(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let modifiers = modifiers_from_state(ev.state());
+                    let key_code = xkb::Keycode::from(ev.detail());
+                    let key =
+                        xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key_code, 0, 0)[0])
+                            .to_lowercase();
+                    if key.starts_with("shift")
+                        || key.starts_with("control")
+                        || key.starts_with("super")
+                        || key.starts_with("alt")
+                    {
+                        window.handle_event(PlatformInput::ModifiersChanged(
+                            crate::ModifiersChangedEvent { modifiers },
+                        ))
                     } else {
                         let key = if key == "return" {
                             "enter".to_string()
@@ -358,7 +366,6 @@ impl Platform for LinuxPlatform {
                         let state = self.state.lock();
                         Arc::clone(&state.windows[&ev.event()])
                     };
-                    println!("{:?}", ev);
                     let pressed_button = button_from_state(ev.state());
                     let modifiers = modifiers_from_state(ev.state());
                     window.handle_event(PlatformInput::MouseMove(crate::MouseMoveEvent {
@@ -372,7 +379,6 @@ impl Platform for LinuxPlatform {
                         let state = self.state.lock();
                         Arc::clone(&state.windows[&ev.event()])
                     };
-                    println!("{:?}", ev);
                     let pressed_button = button_from_state(ev.state());
                     let modifiers = modifiers_from_state(ev.state());
                     window.handle_event(PlatformInput::MouseExited(crate::MouseExitEvent {

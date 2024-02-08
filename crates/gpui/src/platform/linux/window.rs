@@ -1,6 +1,6 @@
 use super::BladeRenderer;
 use crate::{
-    Bounds, GlobalPixels, LinuxDisplay, Pixels, PlatformDisplay, PlatformInput,
+    Bounds, GlobalPixels, KeyDownEvent, LinuxDisplay, Pixels, PlatformDisplay, PlatformInput,
     PlatformInputHandler, PlatformWindow, Point, Size, WindowAppearance, WindowBounds,
     WindowOptions, XcbAtoms,
 };
@@ -296,14 +296,34 @@ impl LinuxWindowState {
                         drop(lock);
                         let key = if event.keystroke.key == "space" {
                             " "
-                        } else if event.keystroke.key == "return" {
-                            "\n"
                         } else {
                             &event.keystroke.key
                         };
                         input_handler.replace_text_in_range(None, key);
                         self.callbacks.lock().input_handler = Some(input_handler);
                     }
+                }
+            }
+            self.callbacks.lock().input = Some(input);
+        }
+    }
+
+    pub(crate) fn handle_key(&self, event: KeyDownEvent, key: &str) {
+        let mut lock = self.callbacks.lock();
+        if let Some(mut input) = lock.input.take() {
+            drop(lock);
+            let handled = input(PlatformInput::KeyDown(event.clone()));
+            if !handled {
+                let mut lock = self.callbacks.lock();
+                if let Some(mut input_handler) = lock.input_handler.take() {
+                    drop(lock);
+                    let key = if event.keystroke.key == "space" {
+                        " "
+                    } else {
+                        key
+                    };
+                    input_handler.replace_text_in_range(None, key);
+                    self.callbacks.lock().input_handler = Some(input_handler);
                 }
             }
             self.callbacks.lock().input = Some(input);
