@@ -168,6 +168,7 @@ impl Platform for LinuxPlatform {
 
     fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
         on_finish_launching();
+        let mut scrolling = false;
         //Note: here and below, don't keep the lock() open when calling
         // into window functions as they may invoke callbacks that need
         // to immediately access the platform (self).
@@ -269,6 +270,25 @@ impl Platform for LinuxPlatform {
                         window.handle_event(PlatformInput::ModifiersChanged(
                             crate::ModifiersChangedEvent { modifiers },
                         ))
+                    } else if ev.detail() == 4 || ev.detail() == 5 {
+                        let touch_phase = if scrolling {
+                            crate::TouchPhase::Moved
+                        } else {
+                            crate::TouchPhase::Started
+                        };
+                        window.handle_event(PlatformInput::ScrollWheel(crate::ScrollWheelEvent {
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            delta: crate::ScrollDelta::Lines(point(
+                                0.,
+                                if ev.detail() == 5 { 1. } else { -1.0 },
+                            )),
+                            modifiers,
+                            touch_phase,
+                        }));
+                        scrolling = true;
                     } else {
                         let key = if key == "return" {
                             "enter".to_string()
@@ -304,19 +324,32 @@ impl Platform for LinuxPlatform {
                         window.handle_event(PlatformInput::ModifiersChanged(
                             crate::ModifiersChangedEvent { modifiers },
                         ))
+                    } else if ev.detail() == 4 || ev.detail() == 5 {
+                        window.handle_event(PlatformInput::ScrollWheel(crate::ScrollWheelEvent {
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            delta: crate::ScrollDelta::Lines(point(
+                                0.,
+                                if ev.detail() == 5 { 1. } else { -1.0 },
+                            )),
+                            modifiers,
+                            touch_phase: crate::TouchPhase::Ended,
+                        }));
+                        scrolling = false;
                     } else {
                         let key = if key == "return" {
                             "enter".to_string()
                         } else {
                             key
                         };
-                        window.handle_event(PlatformInput::KeyDown(crate::KeyDownEvent {
+                        window.handle_event(PlatformInput::KeyUp(crate::KeyUpEvent {
                             keystroke: crate::Keystroke {
                                 modifiers,
                                 key,
                                 ime_key: None,
                             },
-                            is_held: false,
                         }))
                     }
                 }
