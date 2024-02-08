@@ -2882,7 +2882,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e58903f4f8d5b58c7d300908e4ebe5289c1bfdf5587964330f12023b8ff17fd1"
 dependencies = [
  "log",
- "memmap2",
+ "memmap2 0.2.3",
  "ttf-parser 0.12.3",
 ]
 
@@ -3434,6 +3434,7 @@ dependencies = [
  "uuid 1.4.1",
  "waker-fn",
  "xcb",
+ "xkbcommon",
 ]
 
 [[package]]
@@ -4610,6 +4611,15 @@ name = "memmap2"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "723e3ebdcdc5c023db1df315364573789f8857c11b631a2fdfad7c00f5c046b4"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "memmap2"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43a5a03cefb0d953ec0be133036f14e109412fa594edc2f77227249db66cc3ed"
 dependencies = [
  "libc",
 ]
@@ -9582,7 +9592,7 @@ dependencies = [
  "fontdb",
  "kurbo",
  "log",
- "memmap2",
+ "memmap2 0.2.3",
  "pico-args",
  "rctree",
  "roxmltree",
@@ -10545,6 +10555,24 @@ dependencies = [
  "libc",
  "quick-xml",
 ]
+
+[[package]]
+name = "xkbcommon"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13867d259930edc7091a6c41b4ce6eee464328c6ff9659b7e4c668ca20d4c91e"
+dependencies = [
+ "as-raw-xcb-connection",
+ "libc",
+ "memmap2 0.8.0",
+ "xkeysym",
+]
+
+[[package]]
+name = "xkeysym"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054a8e68b76250b253f671d1268cb7f1ae089ec35e195b2efb2a4e9a836d0621"
 
 [[package]]
 name = "xmlparser"

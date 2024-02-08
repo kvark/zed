@@ -1,10 +1,11 @@
 #![allow(unused)]
 
 use crate::{
-    Action, AnyWindowHandle, BackgroundExecutor, Bounds, ClipboardItem, CursorStyle, DisplayId,
-    ForegroundExecutor, Keymap, LinuxDispatcher, LinuxDisplay, LinuxTextSystem, LinuxWindow,
-    LinuxWindowState, Menu, PathPromptOptions, Platform, PlatformDisplay, PlatformInput,
-    PlatformTextSystem, PlatformWindow, Point, Result, SemanticVersion, Size, Task, WindowOptions,
+    button_from_state, button_of_key, modifiers_from_state, point, Action, AnyWindowHandle,
+    BackgroundExecutor, Bounds, ClipboardItem, CursorStyle, DisplayId, ForegroundExecutor, Keymap,
+    LinuxDispatcher, LinuxDisplay, LinuxTextSystem, LinuxWindow, LinuxWindowState, Menu, Modifiers,
+    MouseButton, PathPromptOptions, Platform, PlatformDisplay, PlatformInput, PlatformTextSystem,
+    PlatformWindow, Point, Result, SemanticVersion, Size, Task, WindowOptions,
 };
 
 use async_task::Runnable;
@@ -20,6 +21,7 @@ use std::{
 };
 use time::UtcOffset;
 use xcb::{x, Xid as _};
+use xkbcommon::xkb;
 
 xcb::atoms_struct! {
     #[derive(Debug)]
@@ -47,6 +49,7 @@ struct Callbacks {
 
 pub(crate) struct LinuxPlatform {
     xcb_connection: Arc<xcb::Connection>,
+    keymap: xkbcommon::xkb::Keymap,
     x_root_index: i32,
     atoms: XcbAtoms,
     background_executor: BackgroundExecutor,
@@ -80,6 +83,57 @@ impl LinuxPlatform {
             &xcb_connection,
             x_root_index,
         ));
+        {
+            let xkbver = xcb_connection
+                .wait_for_reply(xcb_connection.send_request(&xcb::xkb::UseExtension {
+                    wanted_major: xkb::x11::MIN_MAJOR_XKB_VERSION,
+                    wanted_minor: xkb::x11::MIN_MINOR_XKB_VERSION,
+                }))
+                .unwrap();
+
+            assert!(
+                xkbver.supported(),
+                "required xcb-xkb-{}-{} is not supported",
+                xkb::x11::MIN_MAJOR_XKB_VERSION,
+                xkb::x11::MIN_MINOR_XKB_VERSION
+            );
+        }
+
+        let events = xcb::xkb::EventType::NEW_KEYBOARD_NOTIFY
+            | xcb::xkb::EventType::MAP_NOTIFY
+            | xcb::xkb::EventType::STATE_NOTIFY;
+        let map_parts = xcb::xkb::MapPart::KEY_TYPES
+            | xcb::xkb::MapPart::KEY_SYMS
+            | xcb::xkb::MapPart::MODIFIER_MAP
+            | xcb::xkb::MapPart::EXPLICIT_COMPONENTS
+            | xcb::xkb::MapPart::KEY_ACTIONS
+            | xcb::xkb::MapPart::KEY_BEHAVIORS
+            | xcb::xkb::MapPart::VIRTUAL_MODS
+            | xcb::xkb::MapPart::VIRTUAL_MOD_MAP;
+
+        xcb_connection
+            .check_request(
+                xcb_connection.send_request_checked(&xcb::xkb::SelectEvents {
+                    device_spec: unsafe { std::mem::transmute::<_, u32>(xcb::xkb::Id::UseCoreKbd) }
+                        as xcb::xkb::DeviceSpec,
+                    affect_which: events,
+                    clear: xcb::xkb::EventType::empty(),
+                    select_all: events,
+                    affect_map: map_parts,
+                    map: map_parts,
+                    details: &[],
+                }),
+            )
+            .unwrap();
+
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let device_id = xkb::x11::get_core_keyboard_device_id(&xcb_connection);
+        let keymap = xkb::x11::keymap_new_from_device(
+            &context,
+            &xcb_connection,
+            device_id,
+            xkb::KEYMAP_COMPILE_NO_FLAGS,
+        );
 
         Self {
             xcb_connection,
@@ -88,6 +142,7 @@ impl LinuxPlatform {
             background_executor: BackgroundExecutor::new(dispatcher.clone()),
             foreground_executor: ForegroundExecutor::new(dispatcher.clone()),
             main_receiver,
+            keymap,
             text_system: Arc::new(LinuxTextSystem::new()),
             callbacks: Mutex::new(Callbacks::default()),
             state: Mutex::new(LinuxPlatformState {
@@ -113,6 +168,7 @@ impl Platform for LinuxPlatform {
 
     fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
         on_finish_launching();
+        let mut scrolling = false;
         //Note: here and below, don't keep the lock() open when calling
         // into window functions as they may invoke callbacks that need
         // to immediately access the platform (self).
@@ -157,7 +213,181 @@ impl Platform for LinuxPlatform {
                     };
                     window.configure(bounds)
                 }
-                _ => {}
+                xcb::Event::X(x::Event::ButtonPress(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let modifiers = modifiers_from_state(ev.state());
+                    if let Some(button) = button_of_key(ev.detail()) {
+                        window.handle_event(PlatformInput::MouseDown(crate::MouseDownEvent {
+                            button,
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            modifiers,
+                            click_count: 1,
+                        }))
+                    } else if ev.detail() == 4 || ev.detail() == 5 {
+                        let touch_phase = if scrolling {
+                            crate::TouchPhase::Moved
+                        } else {
+                            crate::TouchPhase::Started
+                        };
+                        window.handle_event(PlatformInput::ScrollWheel(crate::ScrollWheelEvent {
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            delta: crate::ScrollDelta::Lines(point(
+                                0.,
+                                if ev.detail() == 4 { 1. } else { -1.0 },
+                            )),
+                            modifiers,
+                            touch_phase,
+                        }));
+                        scrolling = true;
+                    }
+                }
+                xcb::Event::X(x::Event::ButtonRelease(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let modifiers = modifiers_from_state(ev.state());
+                    if let Some(button) = button_of_key(ev.detail()) {
+                        window.handle_event(PlatformInput::MouseUp(crate::MouseUpEvent {
+                            button,
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            modifiers,
+                            click_count: 1,
+                        }))
+                    } else if ev.detail() == 4 || ev.detail() == 5 {
+                        window.handle_event(PlatformInput::ScrollWheel(crate::ScrollWheelEvent {
+                            position: point(
+                                (ev.event_x() as f32).into(),
+                                (ev.event_y() as f32).into(),
+                            ),
+                            delta: crate::ScrollDelta::Lines(point(
+                                0.,
+                                if ev.detail() == 4 { 1. } else { -1.0 },
+                            )),
+                            modifiers,
+                            touch_phase: crate::TouchPhase::Ended,
+                        }));
+                        scrolling = false;
+                    }
+                }
+                xcb::Event::X(x::Event::KeyPress(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let modifiers = modifiers_from_state(ev.state());
+                    let key_code = xkb::Keycode::from(ev.detail());
+                    let key =
+                        xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key_code, 0, 0)[0])
+                            .to_lowercase();
+                    let full_key = std::char::from_u32(xkb::keysym_to_utf32(
+                        self.keymap.key_get_syms_by_level(
+                            key_code,
+                            0,
+                            if modifiers.shift { 1 } else { 0 },
+                        )[0],
+                    ))
+                    .unwrap()
+                    .to_string();
+                    if key.starts_with("shift")
+                        || key.starts_with("control")
+                        || key.starts_with("super")
+                        || key.starts_with("alt")
+                    {
+                        window.handle_event(PlatformInput::ModifiersChanged(
+                            crate::ModifiersChangedEvent { modifiers },
+                        ))
+                    } else {
+                        let key = if key == "return" {
+                            "enter".to_string()
+                        } else {
+                            key
+                        };
+                        window.handle_key(
+                            crate::KeyDownEvent {
+                                keystroke: crate::Keystroke {
+                                    modifiers,
+                                    key,
+                                    ime_key: None,
+                                },
+                                is_held: false,
+                            },
+                            &full_key,
+                        )
+                    }
+                }
+                xcb::Event::X(x::Event::KeyRelease(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let modifiers = modifiers_from_state(ev.state());
+                    let key_code = xkb::Keycode::from(ev.detail());
+                    let key =
+                        xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key_code, 0, 0)[0])
+                            .to_lowercase();
+                    if key.starts_with("shift")
+                        || key.starts_with("control")
+                        || key.starts_with("super")
+                        || key.starts_with("alt")
+                    {
+                        window.handle_event(PlatformInput::ModifiersChanged(
+                            crate::ModifiersChangedEvent { modifiers },
+                        ))
+                    } else {
+                        let key = if key == "return" {
+                            "enter".to_string()
+                        } else {
+                            key
+                        };
+                        window.handle_event(PlatformInput::KeyUp(crate::KeyUpEvent {
+                            keystroke: crate::Keystroke {
+                                modifiers,
+                                key,
+                                ime_key: None,
+                            },
+                        }))
+                    }
+                }
+                xcb::Event::X(x::Event::MotionNotify(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let pressed_button = button_from_state(ev.state());
+                    let modifiers = modifiers_from_state(ev.state());
+                    window.handle_event(PlatformInput::MouseMove(crate::MouseMoveEvent {
+                        pressed_button,
+                        position: point((ev.event_x() as f32).into(), (ev.event_y() as f32).into()),
+                        modifiers,
+                    }))
+                }
+                xcb::Event::X(x::Event::LeaveNotify(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    let pressed_button = button_from_state(ev.state());
+                    let modifiers = modifiers_from_state(ev.state());
+                    window.handle_event(PlatformInput::MouseExited(crate::MouseExitEvent {
+                        pressed_button,
+                        position: point((ev.event_x() as f32).into(), (ev.event_y() as f32).into()),
+                        modifiers,
+                    }))
+                }
+                ev => {}
             }
 
             if let Ok(runnable) = self.main_receiver.try_recv() {
