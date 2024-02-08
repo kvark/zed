@@ -1,10 +1,10 @@
 #![allow(unused)]
 
 use crate::{
-    button_of_key, modifiers_from_state, point, Action, AnyWindowHandle, BackgroundExecutor,
-    Bounds, ClipboardItem, CursorStyle, DisplayId, ForegroundExecutor, Keymap, LinuxDispatcher,
-    LinuxDisplay, LinuxTextSystem, LinuxWindow, LinuxWindowState, Menu, Modifiers, MouseButton,
-    PathPromptOptions, Platform, PlatformDisplay, PlatformInput, PlatformTextSystem,
+    button_from_state, button_of_key, modifiers_from_state, point, Action, AnyWindowHandle,
+    BackgroundExecutor, Bounds, ClipboardItem, CursorStyle, DisplayId, ForegroundExecutor, Keymap,
+    LinuxDispatcher, LinuxDisplay, LinuxTextSystem, LinuxWindow, LinuxWindowState, Menu, Modifiers,
+    MouseButton, PathPromptOptions, Platform, PlatformDisplay, PlatformInput, PlatformTextSystem,
     PlatformWindow, Point, Result, SemanticVersion, Size, Task, WindowOptions,
 };
 
@@ -261,7 +261,11 @@ impl Platform for LinuxPlatform {
                         .to_lowercase();
                     println!("press: {:?}", key);
                     let modifiers = modifiers_from_state(ev.state());
-                    if key.starts_with("shift") || key.starts_with("control") {
+                    if key.starts_with("shift")
+                        || key.starts_with("control")
+                        || key.starts_with("super")
+                        || key.starts_with("alt")
+                    {
                         window.handle_event(PlatformInput::ModifiersChanged(
                             crate::ModifiersChangedEvent { modifiers },
                         ))
@@ -291,12 +295,57 @@ impl Platform for LinuxPlatform {
                     let key = xkb::keysym_get_name(self.keymap.key_get_syms_by_level(key, 0, 0)[0])
                         .to_lowercase();
                     println!("release {:?}", key);
-                    window.handle_event(PlatformInput::KeyUp(crate::KeyUpEvent {
-                        keystroke: crate::Keystroke {
-                            modifiers: modifiers_from_state(ev.state()),
-                            key,
-                            ime_key: None,
-                        },
+                    let modifiers = modifiers_from_state(ev.state());
+                    if key.starts_with("shift")
+                        || key.starts_with("control")
+                        || key.starts_with("super")
+                        || key.starts_with("alt")
+                    {
+                        window.handle_event(PlatformInput::ModifiersChanged(
+                            crate::ModifiersChangedEvent { modifiers },
+                        ))
+                    } else {
+                        let key = if key == "return" {
+                            "enter".to_string()
+                        } else {
+                            key
+                        };
+                        window.handle_event(PlatformInput::KeyDown(crate::KeyDownEvent {
+                            keystroke: crate::Keystroke {
+                                modifiers,
+                                key,
+                                ime_key: None,
+                            },
+                            is_held: false,
+                        }))
+                    }
+                }
+                xcb::Event::X(x::Event::MotionNotify(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    println!("{:?}", ev);
+                    let pressed_button = button_from_state(ev.state());
+                    let modifiers = modifiers_from_state(ev.state());
+                    window.handle_event(PlatformInput::MouseMove(crate::MouseMoveEvent {
+                        pressed_button,
+                        position: point((ev.event_x() as f32).into(), (ev.event_y() as f32).into()),
+                        modifiers,
+                    }))
+                }
+                xcb::Event::X(x::Event::LeaveNotify(ev)) => {
+                    let window = {
+                        let state = self.state.lock();
+                        Arc::clone(&state.windows[&ev.event()])
+                    };
+                    println!("{:?}", ev);
+                    let pressed_button = button_from_state(ev.state());
+                    let modifiers = modifiers_from_state(ev.state());
+                    window.handle_event(PlatformInput::MouseExited(crate::MouseExitEvent {
+                        pressed_button,
+                        position: point((ev.event_x() as f32).into(), (ev.event_y() as f32).into()),
+                        modifiers,
                     }))
                 }
                 ev => {}

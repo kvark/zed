@@ -137,7 +137,9 @@ impl LinuxWindowState {
                     | x::EventMask::KEY_RELEASE
                     | x::EventMask::BUTTON_MOTION
                     | x::EventMask::BUTTON_PRESS
-                    | x::EventMask::BUTTON_RELEASE,
+                    | x::EventMask::BUTTON_RELEASE
+                    | x::EventMask::POINTER_MOTION
+                    | x::EventMask::LEAVE_WINDOW,
             ),
         ];
 

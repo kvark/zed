@@ -20,3 +20,14 @@ pub(crate) fn modifiers_from_state(state: x::KeyButMask) -> Modifiers {
         function: false,
     }
 }
+pub(crate) fn button_from_state(state: x::KeyButMask) -> Option<MouseButton> {
+    Some(if state.contains(x::KeyButMask::BUTTON1) {
+        MouseButton::Left
+    } else if state.contains(x::KeyButMask::BUTTON2) {
+        MouseButton::Middle
+    } else if state.contains(x::KeyButMask::BUTTON3) {
+        MouseButton::Right
+    } else {
+        return None;
+    })
+}

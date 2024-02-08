@@ -25,6 +25,7 @@ pkgs.mkShell rec {
     vulkan-headers
     vulkan-loader
     vulkan-validation-layers
+    vulkan-extension-layer
     vulkan-tools
     xorg.libX11
     xorg.libXi
