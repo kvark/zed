@@ -1,7 +1,8 @@
 use super::BladeRenderer;
 use crate::{
-    Bounds, GlobalPixels, LinuxDisplay, Pixels, PlatformDisplay, PlatformInputHandler,
-    PlatformWindow, Point, Size, WindowAppearance, WindowBounds, WindowOptions, XcbAtoms,
+    Bounds, GlobalPixels, LinuxDisplay, Pixels, PlatformDisplay, PlatformInput,
+    PlatformInputHandler, PlatformWindow, Point, Size, WindowAppearance, WindowBounds,
+    WindowOptions, XcbAtoms,
 };
 use blade_graphics as gpu;
 use parking_lot::Mutex;
@@ -27,6 +28,7 @@ struct Callbacks {
     should_close: Option<Box<dyn FnMut() -> bool>>,
     close: Option<Box<dyn FnOnce()>>,
     appearance_changed: Option<Box<dyn FnMut()>>,
+    input_handler: Option<PlatformInputHandler>,
 }
 
 struct LinuxWindowInner {
@@ -129,7 +131,13 @@ impl LinuxWindowState {
         let xcb_values = [
             x::Cw::BackPixel(screen.white_pixel()),
             x::Cw::EventMask(
-                x::EventMask::EXPOSURE | x::EventMask::STRUCTURE_NOTIFY | x::EventMask::KEY_PRESS,
+                x::EventMask::EXPOSURE
+                    | x::EventMask::STRUCTURE_NOTIFY
+                    | x::EventMask::KEY_PRESS
+                    | x::EventMask::KEY_RELEASE
+                    | x::EventMask::BUTTON_MOTION
+                    | x::EventMask::BUTTON_PRESS
+                    | x::EventMask::BUTTON_RELEASE,
             ),
         ];
 
@@ -273,6 +281,32 @@ impl LinuxWindowState {
             }
         }
     }
+
+    pub(crate) fn handle_event(&self, event: PlatformInput) {
+        let mut lock = self.callbacks.lock();
+        if let Some(mut input) = lock.input.take() {
+            drop(lock);
+            let handled = input(event.clone());
+            if !handled {
+                if let PlatformInput::KeyDown(event) = event {
+                    let mut lock = self.callbacks.lock();
+                    if let Some(mut input_handler) = lock.input_handler.take() {
+                        drop(lock);
+                        let key = if event.keystroke.key == "space" {
+                            " "
+                        } else if event.keystroke.key == "return" {
+                            "\n"
+                        } else {
+                            &event.keystroke.key
+                        };
+                        input_handler.replace_text_in_range(None, key);
+                        self.callbacks.lock().input_handler = Some(input_handler);
+                    }
+                }
+            }
+            self.callbacks.lock().input = Some(input);
+        }
+    }
 }
 
 impl PlatformWindow for LinuxWindow {
@@ -312,10 +346,12 @@ impl PlatformWindow for LinuxWindow {
         self
     }
 
-    fn set_input_handler(&mut self, input_handler: PlatformInputHandler) {}
+    fn set_input_handler(&mut self, input_handler: PlatformInputHandler) {
+        self.0.callbacks.lock().input_handler = Some(input_handler);
+    }
 
     fn take_input_handler(&mut self) -> Option<PlatformInputHandler> {
-        None
+        self.0.callbacks.lock().input_handler.take()
     }
 
     fn prompt(

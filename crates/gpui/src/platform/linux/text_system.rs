@@ -114,10 +114,11 @@ impl PlatformTextSystem for LinuxTextSystem {
     }
     fn font_metrics(&self, font_id: FontId) -> FontMetrics {
         let metrics = self.0.read().fonts[font_id.0].as_swash().metrics(&[]);
+        let rustybuzz = self.0.read().fonts[font_id.0].rustybuzz();
         FontMetrics {
             units_per_em: metrics.units_per_em as u32,
             ascent: metrics.ascent,
-            descent: metrics.descent - 1000.0, // HACK: extremly hacky but this means text doesn't get cut off, something to do with gutter padding in the editor
+            descent: -metrics.descent, // HACK: extremly hacky but this means text doesn't get cut off, something to do with gutter padding in the editor
             line_gap: metrics.leading,
             underline_position: metrics.underline_offset,
             underline_thickness: metrics.stroke_size,
