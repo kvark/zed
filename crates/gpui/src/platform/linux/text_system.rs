@@ -1,6 +1,5 @@
 //todo!(linux) remove
 #[allow(unused)]
-
 use crate::{point, size, FontStyle, FontWeight, Point, ShapedGlyph};
 use crate::{
     Bounds, DevicePixels, Font, FontFeatures, FontId, FontMetrics, FontRun, GlyphId, LineLayout,
@@ -66,13 +65,19 @@ impl PlatformTextSystem for LinuxTextSystem {
         self.0.write().add_fonts(fonts)
     }
 
-    // todo!(linux) 
+    // todo!(linux)
     // Need to check that this is working correctly, probably requires xcb input support
     fn all_font_names(&self) -> Vec<String> {
-        self.0.read().font_system.db().faces().map(|face| face.post_script_name.clone()).collect()
+        self.0
+            .read()
+            .font_system
+            .db()
+            .faces()
+            .map(|face| face.post_script_name.clone())
+            .collect()
     }
 
-    // todo!(linux) 
+    // todo!(linux)
     fn all_font_families(&self) -> Vec<String> {
         Vec::new()
     }
@@ -109,7 +114,7 @@ impl PlatformTextSystem for LinuxTextSystem {
             {
                 FontId(font_id)
             } else {
-                // todo!(linux) 
+                // todo!(linux)
                 // Font isn't in fonts so add it there, this is because we query all the fonts in the db and maybe we haven't loaded it yet
                 let font_id = FontId(lock.fonts.len());
                 let font = lock.font_system.get_font(id).unwrap();
@@ -150,7 +155,7 @@ impl PlatformTextSystem for LinuxTextSystem {
             size: size(
                 glyph_metrics.advance_width(glyph_id),
                 glyph_metrics.advance_height(glyph_id),
-            ), // todo!(linux) this height is probably incorect
+            ), // todo!(linux) this height is probably incorrect
         })
     }
 
@@ -188,7 +193,6 @@ impl PlatformTextSystem for LinuxTextSystem {
     ) -> Vec<usize> {
         unimplemented!()
     }
-
 }
 
 impl LinuxTextSystemState {
@@ -355,7 +359,7 @@ impl LinuxTextSystemState {
                     .unwrap(),
             );
             let mut glyphs = SmallVec::new();
-            // todo!(linux) this is definetly wrong, each glyph in glyphs from cosmic-text is a cluster with one glyph, ShapedRun takes a run of glyphs with the same font and direction
+            // todo!(linux) this is definitely wrong, each glyph in glyphs from cosmic-text is a cluster with one glyph, ShapedRun takes a run of glyphs with the same font and direction
             glyphs.push(ShapedGlyph {
                 id: GlyphId(glyph.glyph_id as u32),
                 position: point((glyph.x).into(), glyph.y.into()),
