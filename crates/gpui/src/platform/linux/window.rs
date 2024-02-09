@@ -20,6 +20,10 @@ use std::{
 };
 use xcb::{x, Xid as _};
 
+// https://xcb.freedesktop.org/manual/group__XCB__Sync__API.html#ga7e131febe052bf049a0c54caf459ec76
+// https://github.com/rust-x-bindings/rust-xcb/issues/251
+const XCB_SYNC_ALARM_NOTIFY: u32 = 1;
+
 #[derive(Default)]
 struct Callbacks {
     request_frame: Option<Box<dyn FnMut()>>,
@@ -74,6 +78,8 @@ pub(crate) struct LinuxWindowState {
     display: Rc<dyn PlatformDisplay>,
     raw: RawWindow,
     x_window: x::Window,
+    xcb_counter: xcb::sync::Counter,
+    xcb_alarm: xcb::sync::Alarm,
     callbacks: Mutex<Callbacks>,
     inner: Mutex<LinuxWindowInner>,
 }
@@ -134,6 +140,28 @@ impl LinuxWindowState {
             .roots()
             .nth(x_screen_index as usize)
             .unwrap();
+
+        let refresh_rate = 30;
+
+        let xcb_counter = xcb_connection.generate_id();
+        xcb_connection.send_request(&xcb::sync::CreateCounter {
+            id: xcb_counter,
+            initial_value: xcb::sync::Int64 { hi: 0, lo: 0 },
+        });
+
+        let xcb_alarm = xcb_connection.generate_id();
+        xcb_connection.send_request(&xcb::sync::CreateAlarm {
+            id: xcb_alarm,
+            value_list: &[
+                xcb::sync::Ca::Counter(xcb_counter),
+                xcb::sync::Ca::ValueType(xcb::sync::Valuetype::Relative),
+                xcb::sync::Ca::Delta(xcb::sync::Int64 {
+                    hi: 0,
+                    lo: refresh_rate,
+                }),
+                xcb::sync::Ca::Events(XCB_SYNC_ALARM_NOTIFY),
+            ],
+        });
 
         let xcb_values = [
             x::Cw::BackPixel(screen.white_pixel()),
@@ -229,6 +257,8 @@ impl LinuxWindowState {
             display: Rc::new(LinuxDisplay::new(xcb_connection, x_screen_index)),
             raw,
             x_window,
+            xcb_counter,
+            xcb_alarm,
             callbacks: Mutex::new(Callbacks::default()),
             inner: Mutex::new(LinuxWindowInner {
                 bounds,
@@ -240,6 +270,13 @@ impl LinuxWindowState {
 
     pub fn destroy(&self) {
         self.inner.lock().renderer.destroy();
+        self.xcb_connection.send_request(&xcb::sync::DestroyAlarm {
+            alarm: self.xcb_alarm,
+        });
+        self.xcb_connection
+            .send_request(&xcb::sync::DestroyCounter {
+                counter: self.xcb_counter,
+            });
         self.xcb_connection.send_request(&x::UnmapWindow {
             window: self.x_window,
         });
@@ -252,7 +289,11 @@ impl LinuxWindowState {
         self.xcb_connection.flush().unwrap();
     }
 
-    pub fn expose(&self) {
+    pub(super) fn xcb_alarm(&self) -> xcb::sync::Alarm {
+        self.xcb_alarm
+    }
+
+    pub fn refresh(&self) {
         let mut cb = self.callbacks.lock();
         if let Some(ref mut fun) = cb.request_frame {
             fun();

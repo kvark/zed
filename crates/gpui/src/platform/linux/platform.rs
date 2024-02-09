@@ -84,7 +84,7 @@ impl LinuxPlatform {
             x_root_index,
         ));
         {
-            let xkbver = xcb_connection
+            let xkb_ver = xcb_connection
                 .wait_for_reply(xcb_connection.send_request(&xcb::xkb::UseExtension {
                     wanted_major: xkb::x11::MIN_MAJOR_XKB_VERSION,
                     wanted_minor: xkb::x11::MIN_MINOR_XKB_VERSION,
@@ -92,48 +92,56 @@ impl LinuxPlatform {
                 .unwrap();
 
             assert!(
-                xkbver.supported(),
+                xkb_ver.supported(),
                 "required xcb-xkb-{}-{} is not supported",
                 xkb::x11::MIN_MAJOR_XKB_VERSION,
                 xkb::x11::MIN_MINOR_XKB_VERSION
             );
+
+            let events = xcb::xkb::EventType::NEW_KEYBOARD_NOTIFY
+                | xcb::xkb::EventType::MAP_NOTIFY
+                | xcb::xkb::EventType::STATE_NOTIFY;
+            let map_parts = xcb::xkb::MapPart::KEY_TYPES
+                | xcb::xkb::MapPart::KEY_SYMS
+                | xcb::xkb::MapPart::MODIFIER_MAP
+                | xcb::xkb::MapPart::EXPLICIT_COMPONENTS
+                | xcb::xkb::MapPart::KEY_ACTIONS
+                | xcb::xkb::MapPart::KEY_BEHAVIORS
+                | xcb::xkb::MapPart::VIRTUAL_MODS
+                | xcb::xkb::MapPart::VIRTUAL_MOD_MAP;
+
+            xcb_connection
+                .check_request(
+                    xcb_connection.send_request_checked(&xcb::xkb::SelectEvents {
+                        device_spec: unsafe {
+                            std::mem::transmute::<_, u32>(xcb::xkb::Id::UseCoreKbd)
+                        } as xcb::xkb::DeviceSpec,
+                        affect_which: events,
+                        clear: xcb::xkb::EventType::empty(),
+                        select_all: events,
+                        affect_map: map_parts,
+                        map: map_parts,
+                        details: &[],
+                    }),
+                )
+                .unwrap();
         }
 
-        let events = xcb::xkb::EventType::NEW_KEYBOARD_NOTIFY
-            | xcb::xkb::EventType::MAP_NOTIFY
-            | xcb::xkb::EventType::STATE_NOTIFY;
-        let map_parts = xcb::xkb::MapPart::KEY_TYPES
-            | xcb::xkb::MapPart::KEY_SYMS
-            | xcb::xkb::MapPart::MODIFIER_MAP
-            | xcb::xkb::MapPart::EXPLICIT_COMPONENTS
-            | xcb::xkb::MapPart::KEY_ACTIONS
-            | xcb::xkb::MapPart::KEY_BEHAVIORS
-            | xcb::xkb::MapPart::VIRTUAL_MODS
-            | xcb::xkb::MapPart::VIRTUAL_MOD_MAP;
+        xcb_connection.send_request(&xcb::sync::Initialize {
+            desired_major_version: xcb::sync::MAJOR_VERSION as _,
+            desired_minor_version: xcb::sync::MINOR_VERSION as _,
+        });
 
-        xcb_connection
-            .check_request(
-                xcb_connection.send_request_checked(&xcb::xkb::SelectEvents {
-                    device_spec: unsafe { std::mem::transmute::<_, u32>(xcb::xkb::Id::UseCoreKbd) }
-                        as xcb::xkb::DeviceSpec,
-                    affect_which: events,
-                    clear: xcb::xkb::EventType::empty(),
-                    select_all: events,
-                    affect_map: map_parts,
-                    map: map_parts,
-                    details: &[],
-                }),
+        let keymap = {
+            let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+            let device_id = xkb::x11::get_core_keyboard_device_id(&xcb_connection);
+            xkb::x11::keymap_new_from_device(
+                &context,
+                &xcb_connection,
+                device_id,
+                xkb::KEYMAP_COMPILE_NO_FLAGS,
             )
-            .unwrap();
-
-        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-        let device_id = xkb::x11::get_core_keyboard_device_id(&xcb_connection);
-        let keymap = xkb::x11::keymap_new_from_device(
-            &context,
-            &xcb_connection,
-            device_id,
-            xkb::KEYMAP_COMPILE_NO_FLAGS,
-        );
+        };
 
         Self {
             xcb_connection,
@@ -191,7 +199,7 @@ impl Platform for LinuxPlatform {
                         let state = self.state.lock();
                         Arc::clone(&state.windows[&ev.window()])
                     };
-                    window.expose();
+                    window.refresh();
                 }
                 xcb::Event::X(x::Event::ConfigureNotify(ev)) => {
                     let bounds = Bounds {
@@ -383,6 +391,19 @@ impl Platform for LinuxPlatform {
                         position: point((ev.event_x() as f32).into(), (ev.event_y() as f32).into()),
                         modifiers,
                     }))
+                }
+                xcb::Event::Sync(xcb::sync::Event::AlarmNotify(ev)) => {
+                    println!("Alarm");
+                    let mut target_window = None;
+                    for window in self.state.lock().windows.values() {
+                        if window.xcb_alarm() == ev.alarm() {
+                            target_window = Some(Arc::clone(window));
+                            break;
+                        }
+                    }
+                    if let Some(window) = target_window {
+                        window.refresh();
+                    }
                 }
                 ev => {}
             }
