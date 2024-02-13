@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc, thread};
+use std::{rc::Rc, sync::Arc};
 
 use parking_lot::Mutex;
 use xcb::{x, Xid};
@@ -19,9 +19,7 @@ pub(crate) struct X11Client {
     platform_inner: Arc<LinuxPlatformInner>,
     xcb_connection: Arc<xcb::Connection>,
     x_root_index: i32,
-    xcb_present_idle_event: xcb::SpecialEventId,
     atoms: XcbAtoms,
-    display_link_thread: thread::JoinHandle<()>,
     state: Mutex<X11ClientState>,
 }
 
@@ -32,44 +30,15 @@ impl X11Client {
         x_root_index: i32,
         atoms: XcbAtoms,
     ) -> Self {
-        let state = Mutex::new(X11ClientState {
-            windows: HashMap::default(),
-        });
-        //let state_thread = Arc::clone(&state);
-
-        let xcb_present_idle_event =
-            xcb_connection.register_for_special_xge::<xcb::present::IdleNotifyEvent>();
-        let xcb_connection_thread = Arc::clone(&xcb_connection);
-
-        let display_link_thread = thread::spawn(move || {
-            while let Ok(xcb::Event::Present(xcb::present::Event::IdleNotify(_ev))) =
-                xcb_connection_thread.wait_for_special_event(xcb_present_idle_event)
-            {
-                println!("Hello!"); //TEMP!
-                                    /*let window = {
-                                        let state = state_thread.lock();
-                                        Arc::clone(&state.windows[&ev.window()])
-                                    };
-                                    window.refresh();*/
-            }
-        });
-
         Self {
             platform_inner: inner,
             xcb_connection,
             x_root_index,
-            xcb_present_idle_event,
             atoms,
-            display_link_thread,
-            state,
+            state: Mutex::new(X11ClientState {
+                windows: HashMap::default(),
+            }),
         }
-    }
-}
-
-impl Drop for X11Client {
-    fn drop(&mut self) {
-        self.xcb_connection
-            .unregister_for_special_event(self.xcb_present_idle_event);
     }
 }
 
@@ -118,17 +87,27 @@ impl Client for X11Client {
                     };
                     window.configure(bounds)
                 }
-                xcb::Event::Present(xcb::present::Event::ConfigureNotify(ev)) => {
-                    self.xcb_connection.send_and_check_request(&xcb::present::NotifyMsc{
-                        window: ev.window(),serial:0, target_msc:0,divisor:1,remainder:0
-                    }).unwrap();
-                }
+                // delivered when a PresentPixmap or PresentNotifyMSC operation has completed.
                 xcb::Event::Present(xcb::present::Event::CompleteNotify(ev)) => {
                     println!("complete notify");
-                    self.xcb_connection.send_and_check_request(&xcb::present::NotifyMsc{
-                        window: ev.window(),serial:0, target_msc:0,divisor:1,remainder:0
-                    }).unwrap();
-                } 
+
+                    let window = {
+                        let state = self.state.lock();
+                        Rc::clone(&state.windows[&ev.window()])
+                    };
+                    window.refresh();
+
+                    // Delivers the next PresentCompleteNotifyEvent with no delay
+                    self.xcb_connection
+                        .send_and_check_request(&xcb::present::NotifyMsc {
+                            window: ev.window(),
+                            serial: 0,
+                            target_msc: 0,
+                            divisor: 1,
+                            remainder: 0,
+                        })
+                        .unwrap();
+                }
                 _ => {}
             }
 

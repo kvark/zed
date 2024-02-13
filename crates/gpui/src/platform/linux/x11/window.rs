@@ -202,13 +202,22 @@ impl X11WindowState {
             })
             .unwrap();
 
-        // Is this ID used anywhere?
-        let idle_notify_event_id = xcb_connection.generate_id();
+        // Selects the set of Present events to be delivered for the specified window and event context.
         xcb_connection
             .send_and_check_request(&xcb::present::SelectInput {
-                eid: idle_notify_event_id,
+                eid: xcb_connection.generate_id(),
                 window: x_window,
-                event_mask: xcb::present::EventMask::CONFIGURE_NOTIFY | xcb::present::EventMask::COMPLETE_NOTIFY,
+                event_mask: xcb::present::EventMask::COMPLETE_NOTIFY,
+            })
+            .unwrap();
+        // Delivers the initial PresentCompleteNotifyEvent with no delay
+        xcb_connection
+            .send_and_check_request(&xcb::present::NotifyMsc {
+                window: x_window,
+                serial: 0,
+                target_msc: 0,
+                divisor: 1,
+                remainder: 0,
             })
             .unwrap();
 
