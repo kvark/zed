@@ -208,7 +208,7 @@ impl X11WindowState {
             .send_and_check_request(&xcb::present::SelectInput {
                 eid: idle_notify_event_id,
                 window: x_window,
-                event_mask: xcb::present::EventMask::IDLE_NOTIFY,
+                event_mask: xcb::present::EventMask::CONFIGURE_NOTIFY | xcb::present::EventMask::COMPLETE_NOTIFY,
             })
             .unwrap();
 

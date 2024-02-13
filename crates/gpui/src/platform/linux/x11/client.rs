@@ -118,6 +118,17 @@ impl Client for X11Client {
                     };
                     window.configure(bounds)
                 }
+                xcb::Event::Present(xcb::present::Event::ConfigureNotify(ev)) => {
+                    self.xcb_connection.send_and_check_request(&xcb::present::NotifyMsc{
+                        window: ev.window(),serial:0, target_msc:0,divisor:1,remainder:0
+                    }).unwrap();
+                }
+                xcb::Event::Present(xcb::present::Event::CompleteNotify(ev)) => {
+                    println!("complete notify");
+                    self.xcb_connection.send_and_check_request(&xcb::present::NotifyMsc{
+                        window: ev.window(),serial:0, target_msc:0,divisor:1,remainder:0
+                    }).unwrap();
+                } 
                 _ => {}
             }
 
