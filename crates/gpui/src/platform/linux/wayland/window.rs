@@ -19,7 +19,7 @@ use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1
 use wayland_protocols::xdg::shell::client::xdg_surface;
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, WmCapabilities};
 
-use crate::platform::blade::BladeRenderer;
+use crate::platform::blade::{BladeRenderer, BladeSurfaceConfig};
 use crate::platform::linux::wayland::display::WaylandDisplay;
 use crate::platform::{PlatformAtlas, PlatformInputHandler, PlatformWindow};
 use crate::scene::Scene;
@@ -123,10 +123,13 @@ impl WaylandWindowState {
             }
             .unwrap(),
         );
-        let extent = gpu::Extent {
-            width: bounds.size.width,
-            height: bounds.size.height,
-            depth: 1,
+        let config = BladeSurfaceConfig {
+            size: gpu::Extent {
+                width: bounds.size.width,
+                height: bounds.size.height,
+                depth: 1,
+            },
+            transparent: options.window_background == WindowBackgroundAppearance::Transparent,
         };
 
         Self {
@@ -136,10 +139,8 @@ impl WaylandWindowState {
             toplevel,
             viewport,
             globals,
-
             outputs: HashSet::default(),
-
-            renderer: BladeRenderer::new(gpu, extent),
+            renderer: BladeRenderer::new(gpu, config),
             bounds,
             scale: 1.0,
             input_handler: None,
@@ -609,8 +610,11 @@ impl PlatformWindow for WaylandWindow {
         self.borrow_mut().toplevel.set_title(title.to_string());
     }
 
-    fn set_background_appearance(&mut self, _background_appearance: WindowBackgroundAppearance) {
-        // todo(linux)
+    fn set_background_appearance(&mut self, background_appearance: WindowBackgroundAppearance) {
+        let mut state = self.borrow_mut();
+        state
+            .renderer
+            .update_transparency(background_appearance == WindowBackgroundAppearance::Transparent);
     }
 
     fn set_edited(&mut self, edited: bool) {
