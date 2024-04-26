@@ -1281,7 +1281,7 @@ impl WindowsWindow {
             // todo(windows) move window to target monitor
             // options.display_id
             display: Rc::new(WindowsDisplay::primary_monitor().unwrap()),
-            transparent: options.window_background == WindowBackgroundAppearance::Transparent,
+            transparent: options.window_background != WindowBackgroundAppearance::Opaque,
         };
         let lpparam = Some(&context as *const _ as *const _);
         unsafe {
@@ -1520,7 +1520,7 @@ impl PlatformWindow for WindowsWindow {
         self.inner
             .renderer
             .borrow_mut()
-            .update_transparency(background_appearance == WindowBackgroundAppearance::Transparent);
+            .update_transparency(background_appearance != WindowBackgroundAppearance::Opaque);
     }
 
     // todo(windows)
