@@ -1128,6 +1128,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
 
                 match key_state {
                     wl_keyboard::KeyState::Pressed if !keysym.is_modifier_key() => {
+                        log::warn!("event(key pressed)");
                         let mut keystroke =
                             Keystroke::from_xkb(&keymap_state, state.modifiers, keycode);
                         if let Some(mut compose) = state.compose_state.take() {

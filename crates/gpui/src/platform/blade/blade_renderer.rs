@@ -525,6 +525,7 @@ impl BladeRenderer {
     }
 
     pub fn draw(&mut self, scene: &Scene) {
+        log::warn!("draw");
         self.command_encoder.start();
         self.atlas.before_frame(&mut self.command_encoder);
         self.rasterize_paths(scene.paths());

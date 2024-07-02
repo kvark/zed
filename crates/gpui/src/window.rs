@@ -712,6 +712,7 @@ impl Window {
                         && last_input_timestamp.get().elapsed() < Duration::from_secs(1));
 
                 if dirty.get() {
+                    log::warn!("cx.draw+pesent");
                     measure("frame duration", || {
                         handle
                             .update(&mut cx, |_, cx| {
@@ -721,7 +722,10 @@ impl Window {
                             .log_err();
                     })
                 } else if needs_present {
+                    log::warn!("cs.present");
                     handle.update(&mut cx, |_, cx| cx.present()).log_err();
+                } else {
+                    log::warn!("cs.skip");
                 }
 
                 handle
@@ -895,6 +899,7 @@ impl<'a> WindowContext<'a> {
     /// Mark the window as dirty, scheduling it to be redrawn on the next frame.
     pub fn refresh(&mut self) {
         if self.window.draw_phase == DrawPhase::None {
+            log::warn!("refresh");
             self.window.refreshing = true;
             self.window.dirty.set(true);
         }
@@ -1364,6 +1369,7 @@ impl<'a> WindowContext<'a> {
     /// the contents of the new [Scene], use [present].
     #[profiling::function]
     pub fn draw(&mut self) {
+        log::warn!("draw");
         self.window.dirty.set(false);
         self.window.requested_autoscroll = None;
 
@@ -3092,6 +3098,7 @@ impl<'a> WindowContext<'a> {
         if let Some(any_mouse_event) = event.mouse_event() {
             self.dispatch_mouse_event(any_mouse_event);
         } else if let Some(any_key_event) = event.keyboard_event() {
+            log::warn!("dispatch_event(keyboard)");
             self.dispatch_key_event(any_key_event);
         }
 
